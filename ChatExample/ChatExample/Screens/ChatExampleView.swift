@@ -30,7 +30,7 @@ struct ChatExampleView: View {
         .enableLoadMore(offset: 1) {
             viewModel.loadMoreMessages()
         }
-        .emptyView { _ in
+        .emptyView {
             Text("Empty State")
         }
         .dateHeaderBuilder { date in

@@ -88,7 +88,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     /// content to display in place of the chat list when there are no messages.
     /// The closure receives the current `Date` (evaluated at render time), which can be
     /// used to show contextual empty-state copy (e.g. "No messages today").
-    var emptyViewBuilder: ((Date)->AnyView)?
+    var emptyViewBuilder: (()->AnyView)?
 
     // MARK: - Customization
 
@@ -320,7 +320,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
         }
         .overlay {
             if isChatEmpty, let emptyViewBuilder {
-                emptyViewBuilder(Date())
+                emptyViewBuilder()
             }
         }
         .onStatusBarTap {

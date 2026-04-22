@@ -47,12 +47,10 @@ public extension ChatView {
     }
 
     /// Provide a view to display when the chat has no messages.
-    /// The closure receives the current `Date` (evaluated at render time), useful for
-    /// contextual empty-state copy such as "No messages today".
-    func emptyView<V: View>(_ builder: @escaping (Date)->V) -> ChatView {
+    func emptyView<V: View>(_ builder: @escaping ()->V) -> ChatView {
         var view = self
-        view.emptyViewBuilder = { date in
-            AnyView(builder(date))
+        view.emptyViewBuilder = {
+            AnyView(builder())
         }
         return view
     }
