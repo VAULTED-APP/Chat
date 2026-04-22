@@ -20,11 +20,24 @@ struct ChatExampleView: View {
     let recorderSettings = RecorderSettings(sampleRate: 16000, numberOfChannels: 1, linearPCMBitDepth: 16)
     
     var body: some View {
-        ChatView(messages: viewModel.messages, chatType: .conversation) { draft in
+        ChatView(
+            messages: viewModel.messages,
+            chatType: .conversation,
+            sectionHeaderTimestampMode: .firstActivity
+        ) { draft in
             viewModel.send(draft: draft)
         }
         .enableLoadMore(offset: 1) {
             viewModel.loadMoreMessages()
+        }
+        .emptyView { _ in
+            Text("Empty State")
+        }
+        .dateHeaderBuilder { date in
+            Text(date.formatted(date: .abbreviated, time: .shortened))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 8)
         }
         .inputViewText($text)
         .scrollToMessageID(scrollToID)

@@ -9,7 +9,12 @@ import SwiftUI
 
 extension ChatView {
 
-    nonisolated static func mapMessages(_ messages: [Message], chatType: ChatType, replyMode: ReplyMode) -> [MessagesSection] {
+    nonisolated static func mapMessages(
+        _ messages: [Message],
+        chatType: ChatType,
+        replyMode: ReplyMode,
+        sectionHeaderTimestampMode: SectionHeaderTimestampMode = .startOfDay
+    ) -> [MessagesSection] {
         guard messages.hasUniqueIDs() else {
             fatalError("Messages can not have duplicate ids, please make sure every message gets a unique id")
         }
@@ -17,25 +22,46 @@ extension ChatView {
         let result: [MessagesSection]
         switch replyMode {
         case .quote:
-            result = mapMessagesQuoteModeReplies(messages, chatType: chatType, replyMode: replyMode)
+            result = mapMessagesQuoteModeReplies(
+                messages,
+                chatType: chatType,
+                replyMode: replyMode,
+                sectionHeaderTimestampMode: sectionHeaderTimestampMode
+            )
         case .answer:
-            result = mapMessagesCommentModeReplies(messages, chatType: chatType, replyMode: replyMode)
+            result = mapMessagesCommentModeReplies(
+                messages,
+                chatType: chatType,
+                replyMode: replyMode,
+                sectionHeaderTimestampMode: sectionHeaderTimestampMode
+            )
         }
 
         return result
     }
 
-    nonisolated static func mapMessagesQuoteModeReplies(_ messages: [Message], chatType: ChatType, replyMode: ReplyMode) -> [MessagesSection] {
+    nonisolated static func mapMessagesQuoteModeReplies(
+        _ messages: [Message],
+        chatType: ChatType,
+        replyMode: ReplyMode,
+        sectionHeaderTimestampMode: SectionHeaderTimestampMode = .startOfDay
+    ) -> [MessagesSection] {
         let dates = Set(messages.map({ $0.createdAt.startOfDay() }))
             .sorted()
             .reversed()
         var result: [MessagesSection] = []
 
         for date in dates {
+            let dayMessages = messages.filter({ $0.createdAt.isSameDay(date) })
+            let resolvedDate = resolveSectionDate(
+                forDay: date,
+                messages: dayMessages,
+                mode: sectionHeaderTimestampMode
+            )
             let section = MessagesSection(
-                date: date,
+                date: resolvedDate,
                 // use fake isFirstSection/isLastSection because they are not needed for quote replies
-                rows: wrapSectionMessages(messages.filter({ $0.createdAt.isSameDay(date) }), chatType: chatType, replyMode: replyMode, isFirstSection: false, isLastSection: false)
+                rows: wrapSectionMessages(dayMessages, chatType: chatType, replyMode: replyMode, isFirstSection: false, isLastSection: false)
             )
             result.append(section)
         }
@@ -43,7 +69,12 @@ extension ChatView {
         return result
     }
 
-    nonisolated static func mapMessagesCommentModeReplies(_ messages: [Message], chatType: ChatType, replyMode: ReplyMode) -> [MessagesSection] {
+    nonisolated static func mapMessagesCommentModeReplies(
+        _ messages: [Message],
+        chatType: ChatType,
+        replyMode: ReplyMode,
+        sectionHeaderTimestampMode: SectionHeaderTimestampMode = .startOfDay
+    ) -> [MessagesSection] {
         let firstLevelMessages = messages.filter { m in
             m.replyMessage == nil
         }
@@ -71,10 +102,32 @@ extension ChatView {
             let isFirstSection = dates.first == date
             let isLastSection = dates.last == date
             let sectionRows = wrapSectionMessages(dayMessages, chatType: chatType, replyMode: replyMode, isFirstSection: isFirstSection, isLastSection: isLastSection)
-            result.append(MessagesSection(date: date, rows: sectionRows))
+            // For "first activity" we only consider top-level messages of that day —
+            // replies may have been authored on a different calendar day.
+            let resolvedDate = resolveSectionDate(
+                forDay: date,
+                messages: dayFirstLevelMessages,
+                mode: sectionHeaderTimestampMode
+            )
+            result.append(MessagesSection(date: resolvedDate, rows: sectionRows))
         }
 
         return result
+    }
+
+    /// Resolves the `Date` to expose on a `MessagesSection` based on the configured
+    /// `SectionHeaderTimestampMode`. Falls back to `dayStart` when no messages are present.
+    nonisolated static private func resolveSectionDate(
+        forDay dayStart: Date,
+        messages: [Message],
+        mode: SectionHeaderTimestampMode
+    ) -> Date {
+        switch mode {
+        case .startOfDay:
+            return dayStart
+        case .firstActivity:
+            return messages.map(\.createdAt).min() ?? dayStart
+        }
     }
 
     nonisolated static private func getRepliesFor(id: String, messages: [Message]) -> [Message] {

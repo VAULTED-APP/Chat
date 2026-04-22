@@ -65,6 +65,7 @@ extension ChatView {
         messages: [Message],
         chatType: ChatType = .conversation,
         replyMode: ReplyMode = .quote,
+        sectionHeaderTimestampMode: SectionHeaderTimestampMode = .startOfDay,
         didSendMessage: @escaping (DraftMessage) -> Void,
         @ViewBuilder messageBuilder: @escaping (_ params: MessageBuilderParameters) -> MessageContent = { _ in
             DummyView()
@@ -82,7 +83,12 @@ extension ChatView {
         didUpdateAttachmentStatus: ((AttachmentUploadUpdate) -> Void)? = nil
     ) {
         self.type = chatType
-        self.sections = ChatView.mapMessages(messages, chatType: chatType, replyMode: replyMode)
+        self.sections = ChatView.mapMessages(
+            messages,
+            chatType: chatType,
+            replyMode: replyMode,
+            sectionHeaderTimestampMode: sectionHeaderTimestampMode
+        )
         self.ids = messages.map { $0.id }
         self.didSendMessage = didSendMessage
         self.messageBuilder = messageBuilder

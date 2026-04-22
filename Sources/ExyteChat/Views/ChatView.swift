@@ -22,6 +22,18 @@ public enum ReplyMode: CaseIterable, Sendable {
     case answer // when replying to message A, new message with appear direclty below message A as a separate cell without duplicating message A in its body
 }
 
+/// Controls which `Date` is exposed on each `MessagesSection` and therefore drives the
+/// section header / `dateHeaderBuilder` callback.
+public enum SectionHeaderTimestampMode: CaseIterable, Sendable {
+    /// Use the start of the day (midnight) of the section. Default — useful when the
+    /// section header is purely a date label (e.g. "Today", "Yesterday", "Mar 12, 2026").
+    case startOfDay
+    /// Use the timestamp of the first activity (earliest `createdAt`) in that section.
+    /// Useful when the section header should display the time the conversation/day
+    /// actually started rather than midnight.
+    case firstActivity
+}
+
 public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction: MessageMenuAction>: View {
     
     /// User and MessageId
@@ -72,6 +84,11 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
 
     /// content to display in between the chat list view and the input view
     var betweenListAndInputViewBuilder: (()->AnyView)?
+
+    /// content to display in place of the chat list when there are no messages.
+    /// The closure receives the current `Date` (evaluated at render time), which can be
+    /// used to show contextual empty-state copy (e.g. "No messages today").
+    var emptyViewBuilder: ((Date)->AnyView)?
 
     // MARK: - Customization
 
@@ -301,6 +318,11 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
         .applyIf(!chatCustomizationParameters.isScrollEnabled) {
             $0.frame(height: tableContentHeight)
         }
+        .overlay {
+            if isChatEmpty, let emptyViewBuilder {
+                emptyViewBuilder(Date())
+            }
+        }
         .onStatusBarTap {
             shouldScrollToTop()
         }
@@ -488,6 +510,10 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     
     private func isGiphyAvailable() -> Bool {
         inputViewCustomizationParameters.availableInputs.contains(AvailableInputType.giphy)
+    }
+
+    private var isChatEmpty: Bool {
+        sections.allSatisfy { $0.rows.isEmpty }
     }
 }
 
