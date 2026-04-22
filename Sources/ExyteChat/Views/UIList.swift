@@ -70,13 +70,14 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         tableView.isScrollEnabled = chatParams.isScrollEnabled
         tableView.keyboardDismissMode = chatParams.keyboardDismissMode
 
-        NotificationCenter.default.addObserver(forName: .onScrollToBottom, object: nil, queue: nil) { _ in
-            DispatchQueue.main.async {
-                if !context.coordinator.sections.isEmpty {
-                    guard tableView.numberOfSections > 0, tableView.numberOfRows(inSection: 0) > 0 else { return }
-                    tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .bottom, animated: true)
-                }
-            }
+        NotificationCenter.default.addObserver(
+            forName: .onScrollToBottom,
+            object: nil,
+            queue: .main
+        ) { [weak coordinator = context.coordinator, weak tableView] _ in
+            guard let coordinator, let tableView, !coordinator.sections.isEmpty else { return }
+            guard tableView.numberOfSections > 0, tableView.numberOfRows(inSection: 0) > 0 else { return }
+            tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .bottom, animated: true)
         }
 
         DispatchQueue.main.async {
