@@ -185,6 +185,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
             }
             .sheet(isPresented: $inputViewModel.showPicker) {
                 photoPickerSheet
+                    .background(DisableInteractiveDismiss())
                     .fullScreenCover(item: galleryPresentationBinding) { presentation in
                         galleryFullScreenCoverContent?(presentation.initialIndex)
                     }
@@ -544,6 +545,30 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
 
     private var isChatEmpty: Bool {
         sections.allSatisfy { $0.rows.isEmpty }
+    }
+}
+
+private struct DisableInteractiveDismiss: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        DispatchQueue.main.async {
+            if let pickerController = view.viewController?.children.first as? PHPickerViewController {
+                pickerController.isModalInPresentation = true
+            }
+        }
+
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) { }
+}
+
+extension UIView {
+    var viewController: UIViewController? {
+        sequence(first: self) { $0.next }
+            .first(where: { $0 is UIViewController })
+            .flatMap { $0 as? UIViewController }
     }
 }
 
