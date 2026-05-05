@@ -211,11 +211,15 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
             }
             
             if chatCustomizationParameters.isListAboveInputView {
-                listWithButton
-                if let builder = betweenListAndInputViewBuilder {
-                    builder()
+                ZStack(alignment: .bottom) {
+                    listWithButton
+                    VStack(spacing: 0) {
+                        if let builder = betweenListAndInputViewBuilder {
+                            builder()
+                        }
+                        inputView
+                    }
                 }
-                inputView
             } else {
                 inputView
                 if let builder = betweenListAndInputViewBuilder {
@@ -303,7 +307,10 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
             chatParams: chatCustomizationParameters,
             messageParams: messageCustomizationParameters,
             timeViewWidth: $timeViewSize.width,
-            reactionViewWidth: $reactionViewSize.width
+            reactionViewWidth: $reactionViewSize.width,
+            bottomOverlayInset: chatCustomizationParameters.isListAboveInputView
+                ? inputViewSize.height + animatedKeyboardHeight + 10
+                : 0
         )
         .applyIf(!chatCustomizationParameters.isScrollEnabled) {
             $0.frame(height: tableContentHeight)

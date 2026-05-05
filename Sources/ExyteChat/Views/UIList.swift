@@ -44,6 +44,13 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
     @Binding var timeViewWidth: CGFloat
     @Binding var reactionViewWidth: CGFloat
 
+    /// Extra inset applied to the screen-bottom edge of the visible chat area.
+    /// Used when the input view overlays the list (see `isListAboveInputView`)
+    /// to push content above the overlay and keyboard so messages stay visible.
+    /// For `.conversation` (upside-down table), this maps to `contentInset.top`;
+    /// for `.comments`, to `contentInset.bottom`.
+    var bottomOverlayInset: CGFloat = 0
+
     // MARK: - State
 
     @State private var isScrolledToTop = false
@@ -99,8 +106,36 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
             }
         }
 
-        if tableView.contentInset != chatParams.contentInsets {
-            tableView.contentInset = chatParams.contentInsets
+        var effectiveInsets = chatParams.contentInsets
+        if type == .conversation {
+            // table is upside-down: screen-bottom == inset.top
+            effectiveInsets.top += bottomOverlayInset
+        } else {
+            effectiveInsets.bottom += bottomOverlayInset
+        }
+        if tableView.contentInset != effectiveInsets {
+            let delta = bottomOverlayInset - context.coordinator.lastBottomOverlayInset
+            context.coordinator.lastBottomOverlayInset = bottomOverlayInset
+
+            // To make content visually move UP on screen by Δ:
+            //  - .conversation (rotated 180°): contentOffset.y -= Δ
+            //  - .comments (not rotated):      contentOffset.y += Δ
+            let offsetSign: CGFloat = (type == .conversation) ? -1 : 1
+            let maxOffsetY = max(0, tableView.contentSize.height - tableView.bounds.height + effectiveInsets.bottom)
+            let minOffsetY = -effectiveInsets.top
+            let targetOffsetY = min(max(tableView.contentOffset.y + offsetSign * delta, minOffsetY), maxOffsetY)
+            let targetOffset = CGPoint(x: tableView.contentOffset.x, y: targetOffsetY)
+
+            UIView.animate(
+                withDuration: 0.25,
+                delay: 0,
+                options: [.curveEaseInOut, .beginFromCurrentState]
+            ) {
+                tableView.contentInset = effectiveInsets
+                if delta != 0 {
+                    tableView.setContentOffset(targetOffset, animated: false)
+                }
+            }
         }
 
         if context.coordinator.sections != sections || tableView.contentOffset != chatParams.externalContentOffset, chatParams.scrollToMessageID != nil {
@@ -509,6 +544,11 @@ struct UIList<MessageContent: View>: UIViewRepresentable {
         /// call pagination handler when this row is reached
         /// without this there is a bug: during new cells insertion willDisplay is called one extra time for the cell which used to be the last one while it is being updated (its position in group is changed from first to middle)
         var paginationTargetIndexPath: IndexPath?
+
+        /// Last applied `bottomOverlayInset` so we can animate the content offset
+        /// by the delta when the input-view-overlay area grows/shrinks (e.g. when
+        /// the keyboard shows/hides).
+        var lastBottomOverlayInset: CGFloat = 0
 
         private let impactGenerator = UIImpactFeedbackGenerator(style: .heavy)
 
