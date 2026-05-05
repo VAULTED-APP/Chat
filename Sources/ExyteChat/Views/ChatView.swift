@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import PhotosUI
 import GiphyUISDK
 import ExyteMediaPicker
 
@@ -119,22 +120,47 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     @State private var giphyConfigured = false
     @State private var selectedGiphyMedia: GPHMedia? = nil
 
+    /// Tracks the most recent non-zero keyboard height (excluding bottom safe
+    /// area) so we can size the inline `PhotosPicker` sheet detent and pad the
+    /// input view to keep the layout stable while toggling between keyboard
+    /// and picker.
+    @State private var storedKeyboardHeight: CGFloat = 0
+
+    /// Externally-owned selection for the inline `PhotosPicker` sheet. The
+    /// consumer holds the source of truth (typically a `@State` array) and
+    /// passes it in via `.selectedPhotoPickerItems($items)`. The binding is
+    /// also forwarded to the custom input view through
+    /// `InputViewBuilderParameters` so it can render staged thumbnails and
+    /// remove items.
+    var selectedPhotoPickerItemsBinding: Binding<[PhotosPickerItem]> = .constant([])
+
+    /// Externally-owned index of the staged image currently presented in a
+    /// fullscreen gallery. The consumer controls when to show/hide the
+    /// gallery by mutating this binding, and provides the gallery view via
+    /// `galleryFullScreenCoverContent`.
+    var galleryInitialIndexBinding: Binding<Int?> = .constant(nil)
+
+    /// Builder for the consumer-provided fullscreen gallery view. `ChatView`
+    /// attaches it both inside the `PhotosPicker` sheet and on the root,
+    /// with mutual exclusion driven by `inputViewModel.showPicker`, so the
+    /// gallery covers the picker when it's open and the chat otherwise.
+    var galleryFullScreenCoverContent: ((Int) -> AnyView)?
+
+    /// Fallback when we haven't observed a keyboard frame yet (first cold
+    /// presentation of the picker before the keyboard has ever opened).
+    private var keyboardHeight: CGFloat {
+        storedKeyboardHeight == 0 ? 300 : storedKeyboardHeight
+    }
+
+    private var animatedKeyboardHeight: CGFloat {
+        (inputViewModel.showPicker || keyboardState.isShown) ? keyboardHeight : 0
+    }
+
     public var body: some View {
         mainView
             .background(chatBackground())
             .environmentObject(keyboardState)
-            .onAppear {
-                if isGiphyAvailable() {
-                    if let giphyKey = giphyConfig.giphyKey {
-                        if !giphyConfigured {
-                            giphyConfigured = true
-                            Giphy.configure(apiKey: giphyKey)
-                        }
-                    } else {
-                        print("WARNING: giphy key not provided, please pass a key using giphyConfig")
-                    }
-                }
-            }
+            .ignoresSafeArea(.keyboard, edges: .all)
             .onChange(of: inputViewModel.text) { _ , newValue in
                 inputViewCustomizationParameters.onInputTextChange?(newValue)
             }
@@ -143,61 +169,25 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
                     inputViewModel.text = inputViewCustomizationParameters.externalInputText ?? ""
                 }
             }
-            .onChange(of: selectedGiphyMedia) {
-                if let giphyMedia = selectedGiphyMedia {
-                    inputViewModel.attachments.giphyMedia = giphyMedia
-                    inputViewModel.send()
-                }
+            .onChange(of: keyboardState.keyboardFrame) { _, frame in
+                guard frame != .zero, storedKeyboardHeight == 0 else { return }
+                storedKeyboardHeight = max(frame.height - bottomSafeAreaInset, 0)
             }
             .onChange(of: inputViewModel.showPicker) { _ , newValue in
                 if newValue {
                     globalFocusState.focus = nil
                 }
             }
-            .onChange(of: inputViewModel.showGiphyPicker) { _ , newValue in
+            .onChange(of: keyboardState.isShown) { _, newValue in
                 if newValue {
-                    globalFocusState.focus = nil
+                    inputViewModel.showPicker = false
                 }
             }
-            .sheet(isPresented: $inputViewModel.showGiphyPicker) {
-                if giphyConfig.giphyKey != nil {
-                    GiphyEditorView(
-                        giphyConfig: giphyConfig,
-                        selectedMedia: $selectedGiphyMedia
-                    )
-                    .environmentObject(globalFocusState)
-                } else {
-                    Text("no giphy key found")
-                }
-            }
-            .fullScreenCover(isPresented: $inputViewModel.showPicker) {
-                AttachmentsEditor(
-                    inputViewModel: inputViewModel,
-                    inputViewBuilder: inputViewBuilder,
-                    mediaPickerParameters: inputViewCustomizationParameters.mediaPickerParameters,
-                    availableInputs: inputViewCustomizationParameters.availableInputs,
-                    localization: chatCustomizationParameters.localization
-                )
-                .environmentObject(globalFocusState)
-                .environmentObject(keyboardState)
-            }
-            .fullScreenCover(isPresented: $viewModel.fullscreenAttachmentPresented) {
-                let attachments = sections.flatMap { section in section.rows.flatMap { $0.message.attachments } }
-                let index = attachments.firstIndex { $0.id == viewModel.fullscreenAttachmentItem?.id }
-
-                GeometryReader { g in
-                    FullscreenMediaPages(
-                        viewModel: FullscreenMediaPagesViewModel(
-                            attachments: attachments,
-                            index: index ?? 0
-                        ),
-                        safeAreaInsets: g.safeAreaInsets,
-                        onClose: { [weak viewModel] in
-                            viewModel?.dismissAttachmentFullScreen()
-                        }
-                    )
-                    .ignoresSafeArea()
-                }
+            .sheet(isPresented: $inputViewModel.showPicker) {
+                photoPickerSheet
+                    .fullScreenCover(item: galleryPresentationBinding) { presentation in
+                        galleryFullScreenCoverContent?(presentation.initialIndex)
+                    }
             }
             .background {
                 // assume all the time views have same width, like "00:00"
@@ -341,6 +331,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
         }
         .simultaneousGesture(
             TapGesture().onEnded {
+                inputViewModel.showPicker = false
                 globalFocusState.focus = nil
             }
         )
@@ -366,37 +357,69 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     }
 
     var inputView: some View {
-        ZStack {
-            let customInputView = inputViewBuilder(
-                InputViewBuilderParameters(
-                    text: $inputViewModel.text,
-                    attachments: inputViewModel.attachments,
-                    inputViewState: inputViewModel.state,
-                    inputViewStyle: .message,
-                    inputViewActionClosure: inputViewModel.inputViewAction()
-                ) {
+        inputViewBuilder(
+            InputViewBuilderParameters(
+                text: $inputViewModel.text,
+                attachments: inputViewModel.attachments,
+                inputViewState: inputViewModel.state,
+                inputViewStyle: .message,
+                inputViewActionClosure: inputViewModel.inputViewAction(),
+                dismissKeyboardClosure: {
                     globalFocusState.focus = nil
                 }
             )
-
-            if customInputView is DummyView {
-                InputView(
-                    viewModel: inputViewModel,
-                    inputFieldId: viewModel.inputFieldId,
-                    style: .message,
-                    availableInputs: inputViewCustomizationParameters.availableInputs,
-                    recorderSettings: inputViewCustomizationParameters.recorderSettings,
-                    localization: chatCustomizationParameters.localization
-                )
-            } else {
-                customInputView
-                    .customFocus($globalFocusState.focus, equals: .uuid(viewModel.inputFieldId))
-            }
-        }
+        )
+        .customFocus($globalFocusState.focus, equals: .uuid(viewModel.inputFieldId))
         .sizeGetter($inputViewSize)
+        .padding(.bottom, animatedKeyboardHeight)
+        .animation(.interpolatingSpring(duration: 0.3, bounce: 0, initialVelocity: 0), value: animatedKeyboardHeight)
         .environmentObject(globalFocusState)
         .onAppear(perform: inputViewModel.onStart)
         .onDisappear(perform: inputViewModel.onStop)
+    }
+
+    @ViewBuilder
+    private var photoPickerSheet: some View {
+        PhotosPicker(
+            "",
+            selection: selectedPhotoPickerItemsBinding,
+            maxSelectionCount: inputViewCustomizationParameters.mediaPickerParameters.selectionParameters.selectionLimit,
+            selectionBehavior: .continuousAndOrdered,
+            matching: .images,
+            photoLibrary: .shared()
+        )
+        .photosPickerStyle(.inline)
+        .tint(Color.black)
+        .photosPickerDisabledCapabilities([.stagingArea, .selectionActions])
+        .presentationDetents([.height(keyboardHeight), .large])
+        .presentationBackgroundInteraction(.enabled(upThrough: .height(keyboardHeight)))
+    }
+
+    /// Identifiable wrapper around the gallery initial index so it can drive
+    /// `.fullScreenCover(item:)`.
+    private struct GalleryPresentation: Identifiable {
+        let initialIndex: Int
+        var id: Int { initialIndex }
+    }
+
+    /// Binding used inside the picker sheet — always reflects the consumer's
+    /// `galleryInitialIndex` so the gallery can sit on top of the picker.
+    private var galleryPresentationBinding: Binding<GalleryPresentation?> {
+        Binding(
+            get: { galleryInitialIndexBinding.wrappedValue.map(GalleryPresentation.init) },
+            set: { galleryInitialIndexBinding.wrappedValue = $0?.initialIndex }
+        )
+    }
+
+    /// Bottom safe-area inset of the active key window. Used to subtract the
+    /// home-indicator region from the reported keyboard frame so the picker
+    /// detent matches the visible keyboard area.
+    private var bottomSafeAreaInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first(where: { $0.isKeyWindow })?
+            .safeAreaInsets.bottom ?? 0
     }
     
     func messageMenu(_ row: MessageRow) -> some View {

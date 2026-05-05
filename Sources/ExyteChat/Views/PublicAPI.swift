@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import PhotosUI
 import ExyteMediaPicker
 
 public extension ChatView {
@@ -273,6 +274,35 @@ public extension ChatView {
     }
 
     // MARK: - Built-in input view
+
+    /// External binding for the inline `PhotosPicker` selection.
+    ///
+    /// The consumer owns the `@State [PhotosPickerItem]` array; `ChatView`
+    /// drives the picker sheet against it and forwards the same binding to
+    /// the custom input view via `InputViewBuilderParameters` so staged
+    /// thumbnails and remove actions stay in sync.
+    func selectedPhotoPickerItems(_ binding: Binding<[PhotosPickerItem]>) -> ChatView {
+        var view = self
+        view.selectedPhotoPickerItemsBinding = binding
+        return view
+    }
+
+    /// Consumer-provided fullscreen gallery for staged image attachments.
+    ///
+    /// The consumer owns the `Int?` binding (the index of the tapped staged
+    /// image, or `nil` to dismiss) and the gallery view itself. `ChatView`
+    /// attaches the cover both above the `PhotosPicker` sheet and on the
+    /// chat root, with mutual exclusion so the gallery presents from
+    /// whichever surface is on top.
+    func galleryFullScreenCover<Content: View>(
+        item: Binding<Int?>,
+        @ViewBuilder content: @escaping (Int) -> Content
+    ) -> ChatView {
+        var view = self
+        view.galleryInitialIndexBinding = item
+        view.galleryFullScreenCoverContent = { AnyView(content($0)) }
+        return view
+    }
 
     /// binding to current text in the default input text field
     public func inputViewText(_ binding: Binding<String>) -> ChatView {
