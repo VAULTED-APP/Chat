@@ -398,7 +398,7 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
         )
         .photosPickerStyle(.inline)
         .tint(Color.black)
-        .photosPickerDisabledCapabilities([.stagingArea, .selectionActions])
+        .photosPickerDisabledCapabilities([.stagingArea])
         .presentationDetents([.height(keyboardHeight), .large])
         .presentationBackgroundInteraction(.enabled(upThrough: .height(keyboardHeight)))
     }
