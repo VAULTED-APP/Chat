@@ -120,11 +120,18 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     @State private var giphyConfigured = false
     @State private var selectedGiphyMedia: GPHMedia? = nil
 
-    /// Tracks the most recent non-zero keyboard height (excluding bottom safe
-    /// area) so we can size the inline `PhotosPicker` sheet detent and pad the
-    /// input view to keep the layout stable while toggling between keyboard
-    /// and picker.
+    /// Latest observed keyboard height (excluding bottom safe area) from
+    /// `KeyboardState`. Updated on every non-zero frame (including switching
+    /// between alphabet and emoji keyboards). Used for the inline `PhotosPicker`
+    /// sheet detent and input padding; the last height is kept while the
+    /// keyboard is hidden so the picker can match the previous keyboard size.
     @State private var storedKeyboardHeight: CGFloat = 0
+
+    /// When closing the photo picker because the composer is focused, `showPicker`
+    /// becomes false one frame before `keyboardState.isShown` flips to true. Without
+    /// this bridge, `animatedKeyboardHeight` briefly hits zero and the list/input
+    /// jump down then back up.
+    @State private var holdsKeyboardBottomInsetUntilKeyboardShown = false
 
     /// Externally-owned selection for the inline `PhotosPicker` sheet. The
     /// consumer holds the source of truth (typically a `@State` array) and
@@ -153,7 +160,10 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     }
 
     private var animatedKeyboardHeight: CGFloat {
-        (inputViewModel.showPicker || keyboardState.isShown) ? keyboardHeight : 0
+        let shouldInset = inputViewModel.showPicker
+            || keyboardState.isShown
+            || holdsKeyboardBottomInsetUntilKeyboardShown
+        return shouldInset ? keyboardHeight : 0
     }
 
     public var body: some View {
@@ -170,17 +180,35 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
                 }
             }
             .onChange(of: keyboardState.keyboardFrame) { _, frame in
-                guard frame != .zero, storedKeyboardHeight == 0 else { return }
-                storedKeyboardHeight = max(frame.height - bottomSafeAreaInset, 0)
+                guard frame != .zero else { return }
+                let newHeight = max(frame.height - bottomSafeAreaInset, 0)
+                guard newHeight > 0, newHeight != storedKeyboardHeight else { return }
+                storedKeyboardHeight = newHeight
             }
             .onChange(of: inputViewModel.showPicker) { _ , newValue in
                 if newValue {
                     globalFocusState.focus = nil
+                    holdsKeyboardBottomInsetUntilKeyboardShown = false
                 }
             }
             .onChange(of: keyboardState.isShown) { _, newValue in
                 if newValue {
+                    holdsKeyboardBottomInsetUntilKeyboardShown = false
+                }
+            }
+            // Dismiss the inline PhotosPicker only when the composer becomes focused.
+            // A global `keyboardState.isShown` dismiss was wrong: the picker's search field
+            // also raises the keyboard and would immediately dismiss the sheet.
+            .onChange(of: globalFocusState.focus) { _, newValue in
+                if newValue == .uuid(viewModel.inputFieldId) {
+                    if inputViewModel.showPicker {
+                        // If the picker search field already raised the keyboard, inset is
+                        // already driven by `isShown` and the bridge would never clear.
+                        holdsKeyboardBottomInsetUntilKeyboardShown = !keyboardState.isShown
+                    }
                     inputViewModel.showPicker = false
+                } else {
+                    holdsKeyboardBottomInsetUntilKeyboardShown = false
                 }
             }
             .sheet(isPresented: $inputViewModel.showPicker) {

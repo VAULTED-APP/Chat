@@ -25,11 +25,18 @@ public final class KeyboardState: ObservableObject {
 
 private extension KeyboardState {
     func subscribeKeyboardNotifications() {
-        let pub = Publishers.Merge(
+        let frameFromUserInfo: (Notification) -> CGRect? = { notification in
+            (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+        }
+
+        let pub = Publishers.Merge3(
             NotificationCenter.default
                 .publisher(for: UIResponder.keyboardWillShowNotification)
-                .compactMap { $0.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue }
-                .map { $0.cgRectValue },
+                .compactMap(frameFromUserInfo),
+
+            NotificationCenter.default
+                .publisher(for: UIResponder.keyboardWillChangeFrameNotification)
+                .compactMap(frameFromUserInfo),
 
             NotificationCenter.default
                 .publisher(for: UIResponder.keyboardWillHideNotification)
